@@ -43,17 +43,22 @@
                                       #:exists exists-flag))
   
 
+
 ;; unpack-port-into-current-directory: input-port -> void
+;; Unpacks the contents of input-port into the current directory.
+;; Assumes the content is in a form that pack-current-directory
+;; produces; should produce an error otherwise.
 (define (unpack-port-into-current-directory an-input-port
                                             #:exists (exists-flag 'error))
+  (make-directory* (current-directory))
   (let-values ([(inp outp) (make-pipe)])
     (gunzip-through-ports an-input-port outp)
     (let ([s-exp (read inp)])
       (for ([elt s-exp])
         (match elt
-          [(list a-munged-path)
+          [(list (and a-munged-path (? all-munged-path-component?)))
            (make-directory* (unmunge-path a-munged-path))]
-          [(list a-munged-path 
+          [(list (and a-munged-path  (? all-munged-path-component?))
                  (and some-bytes (? bytes?)))
            (call-with-output-file (unmunge-path a-munged-path)
              (lambda (op)
@@ -64,6 +69,8 @@
   
 
 ;; munge-path: path -> (listof (or/c 'same string))
+;; Converts a path without ups into an s-expression, a list of
+;; munged path components that should be platform independent.
 (define (munge-path a-path)
   (map (lambda (component)
          (cond
@@ -74,7 +81,23 @@
             (path->string component)]))
        (explode-path a-path)))
 
+
+;; munged-path-component?: any -> boolean
+;; Produces true if x is a munged path component.
+(define (munged-path-component? x)
+  (or (eq? x 'same)
+      (string? x)))
+
+
+;; all-munged-path-component?: any -> boolean
+;; Produces true if x is a list of munged path components.
+(define (all-munged-path-component? x)
+  (and (list? x)
+       (andmap munged-path-component? x)))
+
 ;; unmunge-path: (listof (or/c 'same string)) -> path
+;; Converts the s-expression produced by munge-path back into
+;; a path.
 (define (unmunge-path x)
   (apply build-path x))
 
@@ -82,7 +105,14 @@
 (provide/contract 
  [pack-current-directory (-> bytes?)]
  [pack-current-directory-to-port (output-port? . -> . any)]
- [unpack-into-current-directory (bytes? . -> . any)]
+ [unpack-into-current-directory ((bytes?) 
+                                 (#:exists (or/c 'error
+                                                 'append
+                                                 'update
+                                                 'replace
+                                                 'truncate
+                                                 'truncate/replace)) 
+                                 . ->* . any)]
  [unpack-port-into-current-directory ((input-port?) 
                                       (#:exists (or/c 'error
                                                       'append
