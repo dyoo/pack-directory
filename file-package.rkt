@@ -9,11 +9,18 @@
 
 
 ;; pack-current-directory: -> bytes
-;; Produces a bytes representing the content of the current
+;; Produces bytes representing the content of the current
 ;; directory.
 (define (pack-current-directory)
-  (let-values ([(ip op) (make-pipe)]
-               [(bytes-output-port) (open-output-bytes)])
+  (let ([bytes-output-port (open-output-bytes)])
+    (pack-current-directory-to-port bytes-output-port)
+    (get-output-bytes bytes-output-port)))
+    
+
+;; pack-current-directory-to-port: output-port -> void
+;; Writes out representation of current directory to output-port.
+(define (pack-current-directory-to-port an-output-port)
+  (let-values ([(ip op) (make-pipe)])
     (write  (for/list ([a-path (pathlist-closure 
                                 (list (build-path 'same)))])
               (cond [(directory-exists? a-path)
@@ -25,14 +32,22 @@
                      (error 'pack-current-directory)]))
             op)
     (close-output-port op)
-    (gzip-through-ports ip bytes-output-port #f (current-seconds))
-    (get-output-bytes bytes-output-port)))
-    
+    (gzip-through-ports ip an-output-port #f (current-seconds))))
+
+
   
 ;; unpack-into-current-directory: bytes -> void
-(define (unpack-into-current-directory directory-bytes)
+(define (unpack-into-current-directory directory-bytes 
+                                       #:exists (exists-flag 'error))
+  (unpack-port-into-current-directory (open-input-bytes directory-bytes)
+                                      #:exists exists-flag))
+  
+
+;; unpack-port-into-current-directory: input-port -> void
+(define (unpack-port-into-current-directory an-input-port
+                                            #:exists (exists-flag 'error))
   (let-values ([(inp outp) (make-pipe)])
-    (gunzip-through-ports (open-input-bytes directory-bytes) outp)
+    (gunzip-through-ports an-input-port outp)
     (let ([s-exp (read inp)])
       (for ([elt s-exp])
         (match elt
@@ -42,9 +57,12 @@
                  (and some-bytes (? bytes?)))
            (call-with-output-file (unmunge-path a-munged-path)
              (lambda (op)
-               (write-bytes some-bytes op)))])))))
+               (write-bytes some-bytes op))
+             #:exists exists-flag)])))))
+
   
-           
+  
+
 ;; munge-path: path -> (listof (or/c 'same string))
 (define (munge-path a-path)
   (map (lambda (component)
@@ -63,4 +81,13 @@
 
 (provide/contract 
  [pack-current-directory (-> bytes?)]
- [unpack-into-current-directory (bytes? . -> . any)])
+ [pack-current-directory-to-port (output-port? . -> . any)]
+ [unpack-into-current-directory (bytes? . -> . any)]
+ [unpack-port-into-current-directory ((input-port?) 
+                                      (#:exists (or/c 'error
+                                                      'append
+                                                      'update
+                                                      'replace
+                                                      'truncate
+                                                      'truncate/replace)) 
+                                      . ->* . any)])
