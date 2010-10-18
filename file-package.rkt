@@ -7,6 +7,12 @@
          file/gzip
          file/gunzip)
 
+;; FIXME issues: memory usage.  We're holding the contents of an entire
+;; directory into memory.  We should use a representation that isn't so
+;; silly.
+
+
+
 
 ;; pack-current-directory: -> bytes
 ;; Produces bytes representing the content of the current
