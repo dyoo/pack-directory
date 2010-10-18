@@ -7,11 +7,19 @@
          file/gzip
          file/gunzip)
 
-;; FIXME issues: memory usage.  We're holding the contents of an entire
+;; FIXME: memory usage.  We're holding the contents of an entire
 ;; directory into memory.  We should use a representation that isn't so
-;; silly.
+;; silly. Something like:
+;;                       FILENAME\nLENGTH\nBYTES
+;; or                    FILENAME\ndirectory
+;;
+;; should be unambiguous.
+;;
+;; FIXME: have not tested platform independence.
+;;
 
 
+(define VERSION "1")
 
 
 ;; pack-current-directory: -> bytes
@@ -26,17 +34,19 @@
 ;; pack-current-directory-to-port: output-port -> void
 ;; Writes out representation of current directory to output-port.
 (define (pack-current-directory-to-port an-output-port)
+  (display VERSION an-output-port)
+  (newline an-output-port)
   (let-values ([(ip op) (make-pipe)])
-    (write  (for/list ([a-path (pathlist-closure 
-                                (list (build-path 'same)))])
-              (cond [(directory-exists? a-path)
-                     (list (munge-path a-path))]
-                    [(file-exists? a-path)
-                     (list (munge-path a-path)
-                           (file->bytes a-path))]
-                    [else
-                     (error 'pack-current-directory)]))
-            op)
+    (write (for/list ([a-path (pathlist-closure 
+                               (list (build-path 'same)))])
+             (cond [(directory-exists? a-path)
+                    (list (munge-path a-path))]
+                   [(file-exists? a-path)
+                    (list (munge-path a-path)
+                          (file->bytes a-path))]
+                   [else
+                    (error 'pack-current-directory)]))
+           op)
     (close-output-port op)
     (gzip-through-ports ip an-output-port #f (current-seconds))))
 
@@ -56,6 +66,12 @@
 ;; produces; should produce an error otherwise.
 (define (unpack-port-into-current-directory an-input-port
                                             #:exists (exists-flag 'error))
+  ;; Do a version check.
+  (let ([version (read-line an-input-port)])
+    (unless (string=? version VERSION)
+      (error 'unpack-port-into-current-directory
+             "Expected version ~s, got ~s" VERSION version)))
+  
   (make-directory* (current-directory))
   (let-values ([(inp outp) (make-pipe)])
     (gunzip-through-ports an-input-port outp)
